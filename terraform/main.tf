@@ -65,6 +65,11 @@ resource "aws_eks_cluster" "main" {
     endpoint_private_access = true
   }
 
+      access_config {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
   depends_on = [
     aws_iam_role_policy_attachment.cluster_AmazonEKSClusterPolicy,
     aws_iam_role_policy_attachment.cluster_AmazonEKSVPCResourceController
@@ -146,4 +151,26 @@ resource "aws_eks_node_group" "main" {
     aws_iam_role_policy_attachment.node_AmazonEC2ContainerRegistryReadOnly,
     aws_security_group_rule.cluster_ingress_vpc
   ]
+}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# CI/CD deploy access: lets the GitHub Actions user deploy into the voting namespace only
+# ---------------------------------------------------------------------------------------------------------------------
+data "aws_caller_identity" "current" {}
+
+resource "aws_eks_access_entry" "deploy" {
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/github-actions-deploy"
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "deploy" {
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = aws_eks_access_entry.deploy.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
+
+  access_scope {
+    type       = "namespace"
+    namespaces = ["voting"]
+  }
 }
