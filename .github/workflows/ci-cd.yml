@@ -74,3 +74,30 @@ jobs:
             ${{ env.REGISTRY_USER }}/examplevotingapp_${{ matrix.service }}:${{ github.sha }}
             ${{ env.REGISTRY_USER }}/examplevotingapp_${{ matrix.service }}:latest
             
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - name: Check the cluster exists
+        id: cluster
+        run: |
+          if aws eks describe-cluster --name edikky-voting-cluster > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Cluster not found, skipping deploy"
+          fi
+      - name: Connect kubectl
+        if: steps.cluster.outputs.exists == 'true'
+        run: aws eks update-kubeconfig --name edikky-voting-cluster --region us-east-1
+      - name: Deploy with Helm
+        if: steps.cluster.outputs.exists == 'true'
+        run: helm upgrade --install voting ./helm/voting-app -n voting --set global.tag=${{ github.sha }} --wait --timeout 3m
